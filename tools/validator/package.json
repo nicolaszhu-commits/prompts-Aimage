@@ -1,0 +1,18 @@
+{
+  "name": "markdown-image-prompt-pipeline-validator",
+  "version": "0.1.0",
+  "description": "确定性校验库：命名派生、目录幂等、结构完整性、顺序与覆盖、分类映射、写入隔离等逻辑的属性化测试",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "fast-check": "^3.23.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}
