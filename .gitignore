@@ -25,9 +25,12 @@ venv/
 env/
 
 # ===== 流水线产物（按需保留；默认不上传生成结果）=====
-output/branded/
+# 忽略 branded 下的图片产物，但保留 _nologo / _logo 目录结构（靠 .gitkeep 占位）
+output/branded/**
+!output/branded/_nologo/
+!output/branded/_logo/
 output/*.png
 output/*.jpg
 
-# 保留空目录占位
+# 保留空目录占位（必须放在各忽略规则之后才能生效）
 !**/.gitkeep
