@@ -1,20 +1,30 @@
-"""统一 OSL Logo（修正版）：从未污染的原图重新处理。
+"""统一 OSL Logo 合成。
 
-修正要点（针对上一版误伤内容的问题）：
-- 上一版把右上角「绿色数据标签/表头」误判为旧 Logo 并一起用背景矩形盖掉 → 遮挡内容。
-- 本版用连通域只锁定「最贴右上极角」的那个绿色块（= 旧模型自绘 Logo），
-  仅覆盖该块的紧致 bbox，绝不触碰其它绿色内容（标签、绿列、绿框等）。
-- 覆盖填充色取该 bbox 紧邻区域的局部背景中位数。
+把固定的透明底 Logo 素材（assets/brand/OSL_logo.png）以统一规格叠加到一批配图的右上角，
+使整批 Logo 尺寸 / 位置 / 字形绝对一致；可选地检测并覆盖模型自绘的残留旧 Logo。
 
-Logo 规格（按用户最新要求）：
-- 宽 = 画宽 8%（= 原 10% 的 80%），约 164px@2048
-- 距顶 / 右各 60px
-- 位置固定一致（同一素材 + 同一规则）。
+目录约定（清晰的输入 / 输出分离）：
+- 输入：output/branded/_nologo/   —— 放「没有 Logo 的原图」（你出图后下载、丢进这里）。
+- 输出：output/branded/_logo/      —— 放「已叠加 Logo 的成品」（脚本生成，可直接使用）。
+- 两个目录互不覆盖：原图永远只读留在 _nologo/，成品只写 _logo/，可随时安全重跑。
 
-输入：~/Downloads 原图（只读）；输出：output/branded/（覆盖旧产物，从原图重做）。
+Logo 规格（确定性，来自 logo_logic.py）：
+- 宽 = 画宽 8%（LOGO_WIDTH_RATIO），距顶 / 右各 60px（MARGIN）。
+- 同一批次所有图使用相同素材、相对尺寸与边距（需求 9.2/9.3/9.4/9.9）。
+
+用法：
+  # 最简：处理 _nologo/ 里的全部 PNG，成品写入 _logo/
+  python tools/logo/relogo.py
+
+  # 只处理指定文件
+  python tools/logo/relogo.py --files cover.png social-share.png
+
+  # 自定义输入 / 输出目录（默认即上面的 _nologo / _logo）
+  python tools/logo/relogo.py --in 其它目录 --out 另一个目录
 """
 import os
 import sys
+import argparse
 import numpy as np
 from PIL import Image
 from scipy import ndimage
@@ -29,41 +39,28 @@ from logo_logic import (  # noqa: E402
     MARGIN,
 )
 
-D = os.path.expanduser("~/Downloads")
-LOGO = "assets/brand/OSL_logo.png"
-OUT_DIR = "output/branded"
-os.makedirs(OUT_DIR, exist_ok=True)
-
-FILES = [
-    "OSL_Stablecoin_Volume_Projection_2025-2035.png",
-    "OSL_Traditional_Wire_vs_Stablecoin_Table.png",
-    "OSL_Wire_Card_Stablecoin_3Column_Table.png",
-    "OSL_Corridor_Validation_Framework_4Stage_Flow.png",
-    "OSL_Stablecoin_Corridor_Flows_World_Map.png",
-    "OSL_Cash_On_Off_Ramp_Problem_Diagram.png",
-    "OSL_POS_Distribution_Layer_Infographic.png",
-    "OSL_Commodity_Stablecoin_Landscape_Table.png",
-    "OSL_USDT_vs_USDC_Comparison_Cards.png",
-    "OSL_Real_Commerce_Key_Figure_Callout.png",
-]
+# 默认目录：无 Logo 原图（输入）/ 有 Logo 成品（输出）。
+DEFAULT_IN_DIR = "output/branded/_nologo"
+DEFAULT_OUT_DIR = "output/branded/_logo"
+DEFAULT_LOGO = "assets/brand/OSL_logo.png"
 
 BRAND = np.array([179, 255, 56])
 
-logo = Image.open(LOGO).convert("RGBA")
+# 残留 Logo「贴角护栏」阈值：合并块须紧贴顶边且右缘接近画右边缘，才判为残留旧 Logo。
+CORNER_TOP_RATIO = 0.10    # 顶部 10% 带内
+CORNER_RIGHT_RATIO = 0.06  # 右缘距画右边缘 ≤ 6%
 
 
 def locate_old_logo(a):
-    """定位完整的旧 Logo「OSL」bbox。
+    """定位右上极角的残留旧 Logo「OSL」bbox；无残留则返回 None。
 
-    旧 Logo 的 O/S/L 字母在像素上常是分离连通块；只覆盖最贴角的一个会漏掉其余字母
-    （表现为「OS」残留并与新 Logo 重叠）。本函数：
-      1) 在右上区域(y<360, x>1380)找出所有绿色连通块；
-      2) 调用共享纯逻辑 merge_residual_logo（种子贴角 + 合并同带相邻字母块），
-         从而把整组 OSL 合并；y 带不同的正文标签（如 $1.5Q）不会被并入；
-      3) 返回合并后的紧致 bbox。返回 None 表示未发现。
+    1) 在右上检测区（按画幅比例换算自基准 2048 下 y<360,x>1380）找绿色连通块；
+    2) 用 merge_residual_logo 从最贴角的种子块合并同带相邻字母块得到完整「OSL」bbox；
+    3) 贴角护栏：仅当 bbox 紧贴右上极角时才返回，否则视为合法正文内容，返回 None。
     """
     h, w = a.shape[:2]
-    sy, sx = 360, 1380
+    sy = round(h * 360 / 1152)
+    sx = round(w * 1380 / 2048)
     sub = a[0:sy, sx:w].astype(int)
     green = np.abs(sub - BRAND).sum(axis=2) < 95
     if green.sum() == 0:
@@ -76,14 +73,18 @@ def locate_old_logo(a):
         ys, xs = np.where((lab == i) & green)
         if len(xs) < 80:
             continue
-        gx0, gx1 = sx + int(xs.min()), sx + int(xs.max())
-        gy0, gy1 = int(ys.min()), int(ys.max())
-        comps.append((gx0, gy0, gx1, gy1))
+        comps.append((sx + int(xs.min()), int(ys.min()), sx + int(xs.max()), int(ys.max())))
     if not comps:
         return None
 
-    # 字母块合并的确定性逻辑下沉到 logo_logic.merge_residual_logo（与 Property 15 测试共享）。
-    return merge_residual_logo(comps, w)
+    bbox = merge_residual_logo(comps, w)
+    # 贴角护栏（需求 9.5/9.6）：避免把画面中部的合法绿色内容误判为残留 Logo。
+    x0, y0, x1, y1 = bbox
+    near_top = y0 <= round(h * CORNER_TOP_RATIO)
+    near_right = (w - x1) <= round(w * CORNER_RIGHT_RATIO)
+    if not (near_top and near_right):
+        return None
+    return bbox
 
 
 def cover_region(a, bbox):
@@ -93,7 +94,6 @@ def cover_region(a, bbox):
     pad = 16
     x0 = max(x0 - pad, 0); y0 = max(y0 - pad, 0)
     x1 = min(x1 + pad + 1, w); y1 = min(y1 + pad + 1, h)
-    # 背景采样：优先取 bbox 下方窄带；不足则取最右上极角条带
     below = a[min(y1 + 4, h - 1):min(y1 + 26, h), x0:x1]
     samp = below if below.size else a[0:6, w - 60:w]
     fill = np.median(samp.reshape(-1, 3), axis=0).round().astype(np.uint8)
@@ -101,17 +101,17 @@ def cover_region(a, bbox):
     return (x0, y0, x1, y1, fill.tolist())
 
 
-report = []
-for f in FILES:
-    p = os.path.join(D, f)
-    if not os.path.exists(p):
-        report.append((f, "MISSING", None)); continue
-    im = Image.open(p).convert("RGB")
+def composite_one(src_path, out_path, logo, clear_residual=True):
+    """对单张图合成 Logo：可选清除残留旧 Logo → 叠加固定 Logo → 写出。返回报告元组。"""
+    im = Image.open(src_path).convert("RGB")
     w, h = im.size
     a = np.asarray(im).copy()
 
-    bbox = locate_old_logo(a)
-    covered = cover_region(a, bbox) if bbox else None
+    covered = None
+    if clear_residual:
+        bbox = locate_old_logo(a)
+        if bbox:
+            covered = cover_region(a, bbox)
 
     base = Image.fromarray(a).convert("RGBA")
     target_w = logo_size(w)
@@ -120,14 +120,66 @@ for f in FILES:
     logo_resized = logo.resize((target_w, target_h), Image.LANCZOS)
     x, y = logo_placement(w)
     base.alpha_composite(logo_resized, (x, y))
-
-    out_path = os.path.join(OUT_DIR, f)
     base.convert("RGB").save(out_path, "PNG")
-    report.append((f, f"logo {target_w}x{target_h} @({x},{y})", covered))
+    return (f"{w}x{h} -> logo {target_w}x{target_h} @({x},{y})", covered)
 
-print("Logo 规格：宽=画宽8% 约 {}px@2048, 距顶/右 {}px".format(round(2048 * LOGO_WIDTH_RATIO), MARGIN))
-for f, info, covered in report:
-    print(f"- {f[:46]:48} {info}")
-    if covered:
-        print(f"    覆盖旧Logo: x[{covered[0]}:{covered[2]}] y[{covered[1]}:{covered[3]}] fill={covered[4]}")
-print("输出目录:", OUT_DIR)
+
+def resolve_files(in_dir, files):
+    """确定要处理的文件名：显式给定则用之，否则取输入目录内全部 PNG（排序、跳过隐藏文件）。"""
+    if files:
+        return list(files)
+    if not os.path.isdir(in_dir):
+        return []
+    return [n for n in sorted(os.listdir(in_dir))
+            if n.lower().endswith(".png") and not n.startswith(".")]
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="把无 Logo 原图叠加 OSL Logo，输出成品。")
+    ap.add_argument("--in", dest="in_dir", default=DEFAULT_IN_DIR,
+                    help=f"无 Logo 原图目录（默认 {DEFAULT_IN_DIR}）")
+    ap.add_argument("--out", dest="out_dir", default=DEFAULT_OUT_DIR,
+                    help=f"成品输出目录（默认 {DEFAULT_OUT_DIR}）")
+    ap.add_argument("--files", nargs="*", default=None,
+                    help="要处理的文件名（缺省=输入目录内全部 PNG）")
+    ap.add_argument("--logo", default=DEFAULT_LOGO, help="Logo 素材路径")
+    ap.add_argument("--no-clear-residual", action="store_true",
+                    help="跳过残留旧 Logo 检测/覆盖")
+    args = ap.parse_args(argv)
+
+    in_dir = os.path.expanduser(args.in_dir)
+    out_dir = os.path.expanduser(args.out_dir)
+
+    if not os.path.isdir(in_dir):
+        print(f"❌ 输入目录不存在：{in_dir}")
+        print(f"   请把「没有 Logo 的原图」放进该目录后再运行。")
+        return 1
+    os.makedirs(out_dir, exist_ok=True)
+
+    logo = Image.open(os.path.expanduser(args.logo)).convert("RGBA")
+    files = resolve_files(in_dir, args.files)
+    if not files:
+        print(f"⚠️  输入目录没有可处理的 PNG：{in_dir}")
+        return 0
+
+    report = []
+    for f in files:
+        src = os.path.join(in_dir, f)
+        out_path = os.path.join(out_dir, f)
+        if not os.path.exists(src):
+            report.append((f, "MISSING", None)); continue
+        info, covered = composite_one(src, out_path, logo, clear_residual=not args.no_clear_residual)
+        report.append((f, info, covered))
+
+    print("Logo 规格：宽=画宽{:.0%}, 距顶/右 {}px".format(LOGO_WIDTH_RATIO, MARGIN))
+    print(f"输入（无 Logo）：{in_dir}")
+    print(f"输出（有 Logo）：{out_dir}")
+    for f, info, covered in report:
+        print(f"- {f:46} {info}")
+        if covered:
+            print(f"    覆盖残留Logo: x[{covered[0]}:{covered[2]}] y[{covered[1]}:{covered[3]}] fill={covered[4]}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
