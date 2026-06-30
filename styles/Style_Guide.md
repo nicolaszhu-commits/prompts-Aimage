@@ -25,23 +25,27 @@
 
 ### 1.1 生图阶段的 Logo 处理（强约束）
 
-- **生图提示词中绝不要求绘制 Logo**：相反，明确要求模型**在右上角预留一块干净的空白区（约整图右上 12% 宽 × 18% 高），其中不放置任何文字、字母、字标或图形**——为后期叠加 Logo 留白。
-- **提示词应包含的负向约束**：`do NOT draw, render or place any 'OSL' logo, wordmark, letters or text in the top-right corner; leave the top-right corner as clean empty background reserved for a logo added in post-production.`
-- 这样可彻底避免模型自绘 Logo 带来的「大小不一 / OS 错位 / 字母残缺 / 遮挡内容」等问题。
+- **生图提示词中绝不要求绘制 Logo**：相反，明确要求模型**在右上角预留一块干净的空白区（约整图右上 12–14% 宽 × 18–20% 高、不超过此范围），其中不放置任何文字、字母、字标或图形**——为后期叠加 Logo 留白。
+- **预留区是右上角一个有界小块，不是整条右边栏（强约束）**：该预留区**仅限右上角那一小块**（约 12–14% 宽 × 18–20% 高）。**严禁**因此把整条右侧留空、或把主视觉与标题整体推挤到左半边——主视觉应在画布上**自然居中、均衡布局**，只需避开右上角那一小块。措辞要中性，**不写**「主视觉避开右上角」「整体左移」这类会诱导模型把内容堆向左侧的表述，也**不写**「充分利用右侧空间」这类会诱导模型把右侧填满的反向表述。
+- **预留区必须是「纯背景」**：该区域只能是单一实色背景，**不得有任何元素侵入**，包括但不限于：卡片/容器的描边或边框线、表格分隔线、坐标轴、虚线网格、图例、图标、箭头、数据标签、连接线、色块边缘。线框/描边即便只是「擦边经过」右上角也不允许——必须把这些元素整体内缩、避开预留区。
+- **为何要量化且有上界**：实测发现，仅说 "top-right corner" 不够（扁画幅元素挤，线框常擦进右上角）；但用「至少 14%×20%」这种开口向上的措辞又会让模型矫枉过正、留出整条右边栏导致构图失衡。正确做法是给一个**有界小块**（约 12–14% 宽 × 18–20% 高、不超过），既容下后期 Logo（宽=画宽 8%、距顶/右 60px，落于右上约 8% 宽 × 9% 高），又不会让右侧大片空着。
+- **提示词应包含的负向约束**：`keep only a small bounded reserve area in the absolute top-right corner — roughly the top-right 12–14% width × 18–20% height, no larger — as clean solid-color empty background with no 'OSL' logo, wordmark, letters, text, card borders, frame lines, dividers, axes, gridlines, icons, arrows or data labels entering or grazing it; this reserve is only that small top-right corner block, NOT an empty right-hand column — do not leave the whole right side blank or push all content to the left; the area is reserved for a logo composited in post-production.`
+- 这样可彻底避免模型自绘 Logo 带来的「大小不一 / OS 错位 / 字母残缺 / 遮挡内容」、右上角线框与后期 Logo 堆叠，以及「留白过大、右侧大片空置」等问题。
 
 ### 1.2 后期合成流程（确定性，由脚本执行）
 
-出图后用 `tools/logo/relogo.py` 批量叠加固定 Logo（依赖临时 Python venv + Pillow + scipy）：
+出图后用 `tools/logo/relogo.py` 批量叠加固定 Logo（依赖临时 Python venv + Pillow + scipy）。**目录约定（输入 / 输出分离）**：把第三方平台出的「无 Logo 原图」放进 `output/branded/_nologo/`，脚本将「已叠加 Logo 的成品」写入 `output/branded/_logo/`；原图只读留在 `_nologo/`，可随时安全重跑。
 
-1. **（兜底）清除残留旧 Logo**：若某图右上角仍被模型画了 Logo，脚本用连通域定位「最贴右上极角」的种子绿块，并合并同一垂直带、水平间距很小的相邻字母块，得到完整「OSL」bbox，用其紧邻的局部背景中位数色覆盖。**严格区分**：y 带不同的绿色正文内容（数据标签、绿表头、绿框、分隔线）绝不覆盖。
-2. **叠加固定 Logo**：把 `assets/brand/OSL_logo.png` 缩放到「画宽 8%」，置于右上角、距顶/右各 60px，alpha 合成。
-3. **输出到 `output/branded/`**，原图只读不改。
-4. **自检**：所有成品 Logo 落位一致（2048 画布下约 x[1827:1984] y[63:160]）、顶部边距区无残留绿、正文绿色内容处理前后 diff=0。
+1. **读取无 Logo 原图**：从 `output/branded/_nologo/` 只读读取每张图（缺省处理目录内全部 PNG，也可用 `--files` 指定）。
+2. **（兜底）清除残留旧 Logo**：若某图右上角仍被模型画了 Logo，脚本用连通域定位「最贴右上极角」的种子绿块，并合并同一垂直带、水平间距很小的相邻字母块，得到完整「OSL」bbox，用其紧邻的局部背景中位数色覆盖。**贴角护栏**：仅当合并块紧贴右上极角时才判为残留 Logo；y 带不同的绿色正文内容（数据标签、绿表头、绿框、分隔线）绝不覆盖。
+3. **叠加固定 Logo**：把 `assets/brand/OSL_logo.png` 缩放到「画宽 8%」，置于右上角、距顶/右各 60px，alpha 合成。
+4. **输出到 `output/branded/_logo/`**，原图只读不改。
+5. **自检**：所有成品 Logo 落位一致（2048 画布下约 x[1827:1984] y[63:160]）、顶部边距区无残留绿、正文绿色内容处理前后 diff=0。
 
 > 抠底素材生成脚本：`tools/logo/extract_logo.py`（一次性，已产出 `assets/brand/OSL_logo.png`）。
 
-> 英文原始约束（供生图平台直接使用，强调"留白、不画 Logo"）：
-> Reserve a clean empty area in the top-right corner (about the top-right 12% width × 18% height) with no text, letters, wordmark or graphics of any kind — this space is reserved for an OSL logo composited in post-production. Do NOT draw or render any 'OSL' logo or lettering anywhere in the image.
+> 英文原始约束（供生图平台直接使用，强调"留白、不画 Logo、线框勿入"）：
+> Reserve a small, bounded, clean solid-color empty area in the top-right corner — roughly the top-right 12–14% width × 18–20% height, no larger — with no text, letters, wordmark or graphics of any kind, and no card borders, frame lines, dividers, axes, gridlines, icons, arrows or data labels entering or grazing it. This reserve is only that small top-right corner block, NOT an empty right-hand column — do not leave the whole right side blank or push content to the left. This space is reserved for an OSL logo composited in post-production. Do NOT draw or render any 'OSL' logo or lettering anywhere in the image.
 
 ---
 
@@ -54,11 +58,11 @@
   - ❌ 霓虹辉光 / 发光晕染（no glowing neon blooms）
   - ❌ 渐变（no gradients）
 - **背景**：纯色、极深的藏青/森林绿（very dark navy / forest green，近乎黑色），单一实色。参考图实测背景为「极深藏青」与「纯黑」两类，均为单一实色、无渐变。
-- **字体**：清晰锐利的无衬线字体（crisp sans-serif typography）。
+- **字体**：统一使用 **Inter 字体家族**（Inter font family）——清晰锐利的几何无衬线字体。按文本层级匹配不同的 Inter 字重/字号/颜色（详见第 5 节字体层级表）。
 - **画幅与分辨率**：宽高比 16:9，4K 分辨率（如 3840×2160；版式基准画布 2048×1152）。
 
 > 英文原始约束（供生图平台直接使用）：
-> A strictly 2D flat design, minimalist corporate financial research infographic. Absolutely no 3D elements, no drop shadows, no glowing neon blooms, and no gradients. The background is a solid, very dark navy/forest green (almost black). The color palette is strictly restricted to vibrant neon lime green (primary accent), muted matte gold (secondary accent), pure white (primary text), and light grey (secondary lines). Crisp sans-serif typography. Reserve a clean empty area in the absolute top-right corner (no text, letters, wordmark or graphics) for a logo added in post-production — do NOT draw any 'OSL' logo or lettering. Aspect ratio 16:9, 4k resolution, data journalism aesthetic.
+> A strictly 2D flat design, minimalist corporate financial research infographic. Absolutely no 3D elements, no drop shadows, no glowing neon blooms, and no gradients. The background is a solid, very dark navy/forest green (almost black). The color palette is strictly restricted to vibrant neon lime green (primary accent), muted matte gold (secondary accent), pure white (primary text), and light grey (secondary lines). All text uses the Inter font family: bold Inter headline, medium Inter subtitle, regular Inter body/data labels, and small light-grey Inter annotations. Reserve a small, bounded, clean solid-color empty area in the absolute top-right corner — roughly the top-right 12–14% width × 18–20% height, no larger — with no text, letters, wordmark or graphics, and no card borders, frame lines, dividers, axes, gridlines, icons, arrows or data labels entering or grazing it; this reserve is only that small top-right corner block, NOT an empty right-hand column — do not leave the whole right side blank or push content to the left; the area is reserved for a logo added in post-production — do NOT draw any 'OSL' logo or lettering. Aspect ratio 16:9, 4k resolution, data journalism aesthetic.
 
 ---
 
@@ -89,7 +93,7 @@
 - **基准画布**：2048×1152（16:9）；输出 4K（3840×2160）。
 - **稳定布局栅格**：
   - 左上：主标题（白色粗体）。**此处不放任何「OSL Research」署名**。
-  - 右上：**预留干净空白区，生图阶段不绘制任何 Logo/文字**；成品 Logo 由后期脚本叠加（宽 8%、距顶/右 60px，见第 1 节）。主体内容不得侵入该右上预留区。
+  - 右上：**预留干净空白区（约右上 12–14% 宽 × 18–20% 高、不超过此范围），生图阶段不绘制任何 Logo/文字**；成品 Logo 由后期脚本叠加（宽 8%、距顶/右 60px，见第 1 节）。主体内容、卡片描边、线框、分隔线、坐标轴、图标等**任何元素都不得侵入或擦边**该右上预留区。该预留区**仅是右上角一小块，不是整条右边栏**——不得因此把右侧整片留空或把主视觉推挤到左半边。
   - 中部：核心图表/信息图主体，居中铺排，对齐清晰栅格。
   - 左下/右下：**不放任何「Source」数据来源标注，也不放「OSL Research」或任何其他署名**（来源由用户在正文补充）。
 - **留白**：信息密度适中、模块之间留足呼吸空间；元素严格对齐，边界利落。
@@ -106,6 +110,22 @@
 - **副标题/标语**：紧随主标题下方一行小字，凝练点题。实测样例：「From experimental to essential.」「Two instruments. Different strategic profiles.」「The framework that separates operators from gamblers.」
 - **标题用色**：以纯白为主；可将关键词单独染成霓虹绿做强调（如标题中的「Global settlement.」「USDC」）。
 - 文案保持机构研究口吻，简洁、笃定，不堆砌形容词。
+
+### 5.1 字体层级规范（Inter 字体家族）
+
+全图统一使用 **Inter 字体家族**。按文本层级匹配以下字重、相对字号与颜色（字号以 2048×1152 基准画布为参考，等比缩放到 4K）：
+
+| 层级 | 字体 / 字重 | 字号（@2048 基准） | 颜色 | 用法 |
+| --- | --- | --- | --- | --- |
+| **主标题（Title）** | Inter Bold（700）/ 可用 Extra-Bold 800 | 约 72–96px | 纯白 `#FFFFFF`，关键词可染霓虹绿 `#B3FF38` | 左上主标题，短促陈述句 |
+| **子标题 / 副标题（Subtitle）** | Inter Medium（500）/ Semi-Bold（600） | 约 32–40px | 浅灰 `#8A99A6` | 主标题下方一行点题小字 |
+| **正文 / 数据标签（Body / Data label）** | Inter Regular（400）/ Medium（500） | 约 24–30px | 纯白 `#FFFFFF`（关键数据可染霓虹绿） | 图表数据标签、卡片正文、轴上数值 |
+| **标注 / 注解（Annotation / Caption）** | Inter Regular（400）/ Light（300） | 约 18–22px | 浅灰 `#8A99A6` | 坐标轴标题、图例、脚注式说明、次级注解 |
+
+- 字重对比要清晰：标题 Bold、子标题 Medium、正文 Regular、标注 Light/Regular，形成稳定的视觉层级。
+- 颜色沿用第 3 节调色板：白色承载标题与主数据，浅灰承载子标题与标注，霓虹绿仅用于关键词/关键数据点睛。
+- 字间距（letter-spacing）保持紧凑利落，行距适中；全图字体风格统一为 Inter，不混入其他字族。
+- 中文文本若出现，使用与 Inter 气质一致的几何无衬线中文字体（如思源黑体 / 苹方风格），字重层级比照上表。
 
 ---
 
@@ -133,6 +153,16 @@ OSL 这套内容中反复出现、可直接复用的图表「词汇」：
 **与流水线分类的对应建议**：
 - `Data_Rich_Segment`（数据段落）→ 优先：柱状图/时间序列、折线对比图、对比表、对比信息图。
 - `Logic_Segment`（逻辑段落）→ 优先：框架流程图、世界地图（分布/网络）、左右分栏对比、概念示意。
+
+### 7.1 图表数值准确性强约束（避免比例失真）
+
+为防止生图模型把数值画错、产出与坐标轴对不上的失真图表，凡涉及坐标轴的数据可视化必须遵守：
+
+- **双轴规则（数量级差异）**：当一张图**并列两个数量级差异较大的指标**（如「市值（十亿/B 级）」与「交易量（万亿/T 级）」相差约 10 倍以上）时，**必须使用双纵轴**——左轴一个量纲、右轴另一个量纲，各自独立刻度并分别标注单位；**每根柱/每条线按各自的轴测量高度**，**严禁共用同一条单轴**。共用单轴会让模型把 `$189B` 误当 `≈1.9T` 画到接近 `2T` 的高度，造成数值与纵轴对不上。
+- **轴—数值一致性自检**：提示词应包含可校验的落位描述（例如「`$189B` 必须落在左轴 200B 刻度附近，而非 2T 附近」「`$76B` 是一根明显矮柱」），让出图后能逐条核对柱高与标签数值是否吻合。
+- **图例与读法**：双轴图必须给图例标明「哪种颜色读哪条轴」（如绿=市值（左轴）、金=交易量（右轴）），并提示两轴柱高不可跨轴直接比较。
+- **单位统一**：同一条轴上的所有刻度与数据标签使用同一单位量纲（全 B 或全 T），不在同一轴混用 B 与 T。
+- **不臆造刻度**：坐标轴刻度只能反映原文确有的数值范围；不得为定性示意图发明数值轴（详见 `.kiro/steering/image-prompt-quality.md` 规则二）。
 
 > 备注：第 1 张 `Binance Research` 图为**他牌参考**（纯黑底 + 全金色），其品牌与配色不属于 OSL 体系，仅借鉴其「数据新闻图表」的干净排版（图例/轴标布局）。OSL 出图一律改用本指南第 3 节的绿/金/白/灰调色板，且**图内不照搬其 Source 署名**。
 
@@ -184,11 +214,11 @@ OSL 这套内容中反复出现、可直接复用的图表「词汇」：
 
 **中文版：**
 
-> 统一风格：严格 2D 扁平设计的极简企业级金融研究信息图，数据新闻美学；宽高比 16:9、4K 分辨率；背景为单一实色的极深藏青（近黑）或纯黑；调色板严格限定为霓虹青柠绿（`#B3FF38`，主强调，用于关键结论/关键数据/主图元）、哑光金（次强调，用于被对比的另一方/次级序列）、纯白（主标题与数据标签）、浅灰（副标题/分隔线/坐标轴/虚线网格）；清晰锐利的无衬线字体；细描边单色线性图标；绝不使用 3D、投影、霓虹辉光或渐变；左上角主标题（短促陈述句、可将关键词染霓虹绿）；**右上角预留一块干净空白区（不放任何文字、字母、字标或图形），供后期叠加 Logo——切勿绘制任何「OSL」Logo 或字母**；严禁出现「OSL Research」或任何其他署名；图内不出现任何「Source」/数据来源标注（来源由用户在正文补充）。
+> 统一风格：严格 2D 扁平设计的极简企业级金融研究信息图，数据新闻美学；宽高比 16:9、4K 分辨率；背景为单一实色的极深藏青（近黑）或纯黑；调色板严格限定为霓虹青柠绿（`#B3FF38`，主强调，用于关键结论/关键数据/主图元）、哑光金（次强调，用于被对比的另一方/次级序列）、纯白（主标题与数据标签）、浅灰（副标题/分隔线/坐标轴/虚线网格）；全图文字统一使用 **Inter 字体家族**，按层级区分——主标题 Inter Bold（纯白，关键词可染霓虹绿）、子标题 Inter Medium（浅灰）、正文/数据标签 Inter Regular（纯白，关键数据可染霓虹绿）、标注/注解 Inter Light 或 Regular（浅灰）；细描边单色线性图标；绝不使用 3D、投影、霓虹辉光或渐变；左上角主标题（短促陈述句、可将关键词染霓虹绿）；**右上角预留一块干净的纯背景空白区（约右上 12–14% 宽 × 18–20% 高、不超过此范围），其中不放任何文字、字母、字标或图形，且不得有卡片描边、线框、分隔线、坐标轴、网格、图标、箭头或数据标签侵入或擦边，供后期叠加 Logo——切勿绘制任何「OSL」Logo 或字母；该预留区仅是右上角一小块、不是整条右边栏，不得把右侧整片留空或把主视觉推挤到左半边**；严禁出现「OSL Research」或任何其他署名；图内不出现任何「Source」/数据来源标注（来源由用户在正文补充）。
 
 **英文版（ready-to-append）：**
 
-> Unified style: a strictly 2D flat-design, minimalist corporate financial-research infographic in a data-journalism aesthetic; 16:9 aspect ratio, 4K resolution; solid single-color very dark navy (almost black) or pure black background; palette strictly limited to vibrant neon lime green (#B3FF38, primary accent for key conclusions/key figures/main elements), muted matte gold (secondary accent for the opposing side/secondary series), pure white (titles and data labels) and light grey (subtitles, dividers, axes, dotted gridlines); crisp sans-serif typography; thin single-color line icons; absolutely no 3D, no drop shadows, no glowing neon blooms, no gradients; top-left bold headline as a short declarative sentence (key words may be set in neon green); reserve a clean empty area in the absolute top-right corner (no text, letters, wordmark or graphics of any kind) for a logo composited in post-production — do NOT draw or render any 'OSL' logo or lettering anywhere; absolutely no "OSL Research" wordmark or any other byline anywhere; and no "Source"/attribution text anywhere in the image (the source is added by the user in the body copy).
+> Unified style: a strictly 2D flat-design, minimalist corporate financial-research infographic in a data-journalism aesthetic; 16:9 aspect ratio, 4K resolution; solid single-color very dark navy (almost black) or pure black background; palette strictly limited to vibrant neon lime green (#B3FF38, primary accent for key conclusions/key figures/main elements), muted matte gold (secondary accent for the opposing side/secondary series), pure white (titles and data labels) and light grey (subtitles, dividers, axes, dotted gridlines); all text set in the Inter font family with a clear hierarchy — title in Inter Bold (pure white, key words may be neon green), subtitle in Inter Medium (light grey), body and data labels in Inter Regular (pure white, key figures may be neon green), and annotations/captions in Inter Light or Regular (light grey); thin single-color line icons; absolutely no 3D, no drop shadows, no glowing neon blooms, no gradients; top-left bold headline as a short declarative sentence (key words may be set in neon green); reserve a small, bounded, clean solid-color empty area in the absolute top-right corner — roughly the top-right 12–14% width × 18–20% height, no larger — with no text, letters, wordmark or graphics of any kind, and no card borders, frame lines, dividers, axes, gridlines, icons, arrows or data labels entering or even grazing it, reserved for a logo composited in post-production; this reserve is only that small top-right corner block, NOT an empty right-hand column — do not leave the whole right side blank or push all content to the left; do NOT draw or render any 'OSL' logo or lettering anywhere; absolutely no "OSL Research" wordmark or any other byline anywhere; and no "Source"/attribution text anywhere in the image (the source is added by the user in the body copy).
 
 ---
 
